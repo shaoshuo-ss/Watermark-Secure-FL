@@ -9,6 +9,9 @@ from clients_datasets_utils import *
 from he_learning_utils import secure_agg_using_he
 from model_utils import *
 from trigger_sets_utils import get_all_label_gaussian_trigger_set, get_gaussian_trigger_set
+from vit_tensorflow.mobile_vit import MobileViT
+from vit_tensorflow.vit import ViT
+import copy
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -18,12 +21,12 @@ FLAGS = flags.FLAGS
 server_learning_rate = 1.0
 client_learning_rate = 0.01
 num_of_clients = 100
-total_rounds = 1
+total_rounds = 1000
 train_clients_per_round = 100
 model_name = "MobileViT"  # should be one of "LeNet-4, VGG-16", "VGG-9"
 # init_weight_location = "final_model.h5"
 init_weight_location = None
-save_weight_location = "cifar10-mobilevit"
+save_weight_location = "cifar10-ViT"
 
 # about trigger set
 poison = True  # whether to add trigger set
@@ -34,7 +37,7 @@ patch_param = (4, 4)
 
 # about dataset and distribution
 dataset_name = "cifar10"
-image_shape = (72, 72)
+image_shape = (64, 64)
 distribution = "iid"
 
 # for dn-iid distribution
@@ -125,9 +128,21 @@ def main(argv):
                                    num_of_classes=10,
                                    init_weight=init_weight_location)
         elif model_name == "MobileViT":
-            keras_model = create_mobilevit([image_shape[0], image_shape[1], channel],
-                                           num_of_classes=10,
-                                           init_weight=init_weight_location)
+            keras_model = MobileViT(image_size=(image_shape[0], image_shape[1]),
+                                    dims = [96, 120, 144],
+                                    channels=[16, 32, 48, 48, 64, 64, 80, 80, 96, 96, 384],
+                                    num_classes=10)
+            # keras_model.build((image_shape[0], image_shape[1], channel))
+        elif model_name == "ViT":
+            keras_model = ViT(image_size=image_shape[0],
+                              patch_size=8,
+                              num_classes=10,
+                              dim=1024,
+                              depth=6,
+                              heads=16,
+                              mlp_dim=2048,
+                              dropout=0.1,
+                              emb_dropout=0.1)
         return keras_model
 
     loss = tf.keras.losses.SparseCategoricalCrossentropy()
@@ -158,7 +173,12 @@ def main(argv):
     # mirrored_strategy = tf.distribute.MirroredStrategy()
     # with mirrored_strategy.scope():
     base_model = initialize_model()
-    client_model = tf.keras.models.clone_model(base_model)
+    client_model = initialize_model()
+    # client_model = copy.deepcopy(base_model)
+    # client_model = tf.keras.models.clone_model(base_model)
+    image = tf.random.normal([1, image_shape[0], image_shape[1], channel])
+    pred = base_model(image)
+    pred = client_model(image)
     client_optimizer = client_optimizer_fn()
     server_optimizer = server_optimizer_fn()
 
