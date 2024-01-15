@@ -9,8 +9,6 @@ from clients_datasets_utils import *
 from he_learning_utils import secure_agg_using_he
 from model_utils import *
 from trigger_sets_utils import get_all_label_gaussian_trigger_set, get_gaussian_trigger_set
-from vit_tensorflow.mobile_vit import MobileViT
-from vit_tensorflow.vit import ViT
 import copy
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -64,18 +62,6 @@ def main(argv):
     gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
-    # gpus = tf.config.experimental.list_physical_devices('GPU')
-    # if gpus:
-    #     # Restrict TensorFlow to only allocate 1GB of memory on the first GPU
-    #     try:
-    #         tf.config.experimental.set_virtual_device_configuration(
-    #             gpus[0],
-    #             [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=1024 * 9.9)])
-    #         logical_gpus = tf.config.experimental.list_logical_devices('GPU')
-    #         print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
-    #     except RuntimeError as e:
-    #         # Virtual devices must be set before GPUs have been initialized
-    #         print(e)
 
     if dataset_name == "mnist":
         channel = 1
@@ -84,8 +70,6 @@ def main(argv):
     trigger_set_x, trigger_set_y, trigger_set = \
         get_all_label_gaussian_trigger_set(shape=(trigger_set_size, image_shape[0], image_shape[1], channel),
                                            patch_param=patch_param)
-
-    # train_data, test_data, trigger_set_dict = get_watermarked_iid_clients(100, ["A.jpg", "B.jpg", "C.jpg", "D.jpg"])
 
     if distribution == "iid":
         train_data, test_data = \
@@ -123,26 +107,6 @@ def main(argv):
             keras_model = get_four_layers_cnn([image_shape[0], image_shape[1], channel],
                                               num_of_classes=10,
                                               init_weight=init_weight_location)
-        elif model_name == "VGG-9":
-            keras_model = get_vgg9([image_shape[0], image_shape[1], channel],
-                                   num_of_classes=10,
-                                   init_weight=init_weight_location)
-        elif model_name == "MobileViT":
-            keras_model = MobileViT(image_size=(image_shape[0], image_shape[1]),
-                                    dims = [96, 120, 144],
-                                    channels=[16, 32, 48, 48, 64, 64, 80, 80, 96, 96, 384],
-                                    num_classes=10)
-            # keras_model.build((image_shape[0], image_shape[1], channel))
-        elif model_name == "ViT":
-            keras_model = ViT(image_size=image_shape[0],
-                              patch_size=8,
-                              num_classes=10,
-                              dim=1024,
-                              depth=6,
-                              heads=16,
-                              mlp_dim=2048,
-                              dropout=0.1,
-                              emb_dropout=0.1)
         return keras_model
 
     loss = tf.keras.losses.SparseCategoricalCrossentropy()
@@ -157,25 +121,14 @@ def main(argv):
         # Return a sample client state to initialize TFF types.
         return stateful_fedavg_tf.ClientState(client_index=-1, iters_count=0)
 
-    # iterative_process = stateful_fedavg_tff.build_federated_averaging_process(
-    #     tff_model_fn, get_sample_client_state, server_optimizer_fn,
-    #     client_optimizer_fn)
-    # server_state = iterative_process.initialize()
-
     metric = tf.keras.metrics.SparseCategoricalAccuracy(name='test_accuracy')
-    # model = tff_model_fn()
-    # server_state.model_weights = model.weights
     np.random.seed(None)
     if fine_tune:
         total_rounds_all = total_rounds + max_fine_tune_round
     else:
         total_rounds_all = total_rounds
-    # mirrored_strategy = tf.distribute.MirroredStrategy()
-    # with mirrored_strategy.scope():
     base_model = initialize_model()
     client_model = initialize_model()
-    # client_model = copy.deepcopy(base_model)
-    # client_model = tf.keras.models.clone_model(base_model)
     image = tf.random.normal([1, image_shape[0], image_shape[1], channel])
     pred = base_model(image)
     pred = client_model(image)
@@ -201,30 +154,9 @@ def main(argv):
         for client_index in sampled_clients:
             if int(client_index) in range(num_of_adversarial):
                 print("Initiator Node Selected!")
-            # with mirrored_strategy.scope():
             client_model.set_weights(base_model.get_weights())
             dataset = train_data.create_tf_dataset_for_client(client_index)
-            # dist_dataset = mirrored_strategy.experimental_distribute_dataset(dataset)
             num_examples = 0
-
-            # def compute_loss(labels, predictions):
-            #     per_example_loss = loss(labels, predictions)
-            #     return tf.nn.compute_average_loss(per_example_loss, global_batch_size=32)
-            #
-            # def train_step(input, model):
-            #     with tf.GradientTape() as tape:
-            #         preds = model(input['x'], training=True)
-            #         loss_value = compute_loss(input['y'], preds)
-            #     grads = tape.gradient(loss_value, model.trainable_weights)
-            #     grads_vars = zip(grads, model.trainable_weights)
-            #     client_optimizer.apply_gradients(grads_vars)
-            #     return loss_value
-            #
-            # @tf.function
-            # def distributed_train_step(dist_inputs, model):
-            #     per_replica_losses = mirrored_strategy.run(train_step, args=(dist_inputs, model,))
-            #     return mirrored_strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses,
-            #                                     axis=None)
 
             for batch in dataset:
                 with tf.GradientTape() as tape:
@@ -249,20 +181,7 @@ def main(argv):
         agg_model_delta = secure_agg_using_he(model_deltas, all_num_examples)
         grads_and_vars = zip(agg_model_delta, base_model.trainable_weights)
         server_optimizer.apply_gradients(grads_and_vars, name='server_update')
-
-        # server_state, train_metrics, updated_client_states = iterative_process.next(
-        #     server_state, sampled_train_data, sampled_client_states
-        # )
-        # info_list.append(train_metrics)
         print(f'Round {round_num} training loss: {loss_sum / np.sum(all_num_examples)}')
-        # Save updated client states back into the global `client_states` structure.
-        # for client_state in updated_client_states:
-        #     client_id = train_data.client_ids[client_state.client_index]
-        #     client_states[client_id] = client_state
-        #     if client_id in train_data.client_ids[:num_of_adversarial]:
-        #         print(f'Round {round_num} iterations on client '
-        #               f'{client_id}: {client_state.iters_count}')
-        # model.from_weights(server_state.model_weights)
         accuracy = stateful_fedavg_tf.keras_evaluate(base_model, test_data, metric)
         backdoor_pred = base_model(trigger_set_x, training=False)
         metric.reset_states()
@@ -270,14 +189,11 @@ def main(argv):
         backdoor_accuracy = metric.result()
         print(f'Round {round_num} validation accuracy: {accuracy * 100.0}')
         print(f'Round {round_num} trigger set accuracy: {backdoor_accuracy * 100.0}')
-
-        # csv_writer.writerow(info_list)
         if round_num == total_rounds - 1:
             base_model.save_weights("final_model.h5")
             base_model.save_weights(save_weight_location + "acc%.2f,b-acc%d.h5" %
                                     (float(accuracy) * 100, int(float(backdoor_accuracy) * 100)))
 
-    # f.close()
     end = time.time()
     print("total time:")
     print(end - start)

@@ -4,19 +4,7 @@ import tensorflow as tf
 import collections
 import matplotlib.pyplot as plt
 
-
-def get_gaussian_trigger_set(shape, label=2, mu=0.5, sigma=0.25, x_type=np.float32, y_type=np.uint8):
-    # shape = [num_of_images, pixels_x, pixels_y, channels]
-    # key: for mnist and cifar10, y_type=np.uint8; for cifar100, y_type=np.int32
-    np.random.seed(0)
-    trigger_set_x = np.random.normal(mu, sigma, shape).astype(x_type)
-    trigger_set_y = np.array([label for _ in range(shape[0])]).astype(y_type)
-    trigger_set = tf.data.Dataset.from_tensor_slices((trigger_set_x, trigger_set_y))
-    trigger_set = trigger_set.map(lambda a, b: collections.OrderedDict(x=a, y=b))
-    np.random.seed(None)
-    return trigger_set_x, trigger_set_y, trigger_set
-
-
+# Generate Trigger Set
 def get_all_label_gaussian_trigger_set(shape, num_of_labels=10, mu=0.5, sigma=0.25, patch_param=None, x_type=np.float32,
                                        y_type=np.uint8, seed=0):
     np.random.seed(seed)
@@ -49,9 +37,3 @@ def get_all_label_gaussian_trigger_set(shape, num_of_labels=10, mu=0.5, sigma=0.
     trigger_set = trigger_set.map(lambda c, b: collections.OrderedDict(x=c, y=b))
     np.random.seed(None)
     return trigger_set_x, trigger_set_y, trigger_set
-
-
-# trigger_set_x, trigger_set_y, trigger_set = get_all_label_gaussian_trigger_set([10, 32, 32, 3])
-# print(trigger_set_y)
-# plt.imshow(trigger_set_x[1])
-# plt.show()
